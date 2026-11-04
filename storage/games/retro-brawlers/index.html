@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Retro Space Brawlers (Universal 2-Player)</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body {
+      background: #020617;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    #hud {
+      position: absolute;
+      top: 15px;
+      display: flex;
+      justify-content: space-between;
+      width: 780px;
+      z-index: 10;
+    }
+    .panel {
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid #334155;
+      padding: 8px 16px;
+      border-radius: 8px;
+    }
+    canvas {
+      border: 2px solid #3b82f6;
+      border-radius: 12px;
+      background: #030712;
+      box-shadow: 0 0 30px rgba(59, 130, 246, 0.3);
+    }
+    .info-footer {
+      position: absolute;
+      bottom: 12px;
+      color: #94a3b8;
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <div class="panel" style="border-color:#38bdf8;">
+      <span style="color:#38bdf8; font-weight:bold;">P1 (Host):</span> HP <span id="p1-hp">100</span> | Score: <span id="p1-score">0</span>
+      <div style="font-size: 0.75rem; color:#94a3b8;">Controls: A/D (Move), W (Jump), Space (Attack)</div>
+    </div>
+    <div class="panel" style="border-color:#f43f5e; text-align:right;">
+      <span style="color:#f43f5e; font-weight:bold;">P2 (Guest):</span> HP <span id="p2-hp">100</span> | Score: <span id="p2-score">0</span>
+      <div style="font-size: 0.75rem; color:#94a3b8;">Controls: ← / → (Move), ↑ (Jump), Enter (Attack)</div>
+    </div>
+  </div>
+
+  <canvas id="brawlerCanvas" width="800" height="480"></canvas>
+
+  <div class="info-footer">
+    Works via <b>Universal Remote Controller Sync</b>: Player 2 plays from anywhere without modifying this game!
+  </div>
+
+  <script>
+    const canvas = document.getElementById('brawlerCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const keys = {};
+    window.addEventListener('keydown', e => { keys[e.key] = true; });
+    window.addEventListener('keyup', e => { keys[e.key] = false; });
+
+    const p1 = { x: 120, y: 360, vx: 0, vy: 0, w: 32, h: 48, hp: 100, score: 0, color: '#38bdf8', isGrounded: true, punch: 0 };
+    const p2 = { x: 640, y: 360, vx: 0, vy: 0, w: 32, h: 48, hp: 100, score: 0, color: '#f43f5e', isGrounded: true, punch: 0 };
+
+    const GRAVITY = 0.6;
+    const FLOOR = 400;
+
+    function update() {
+      // P1 input (A/D/W + Space)
+      if (keys['a'] || keys['A']) p1.vx = -4;
+      else if (keys['d'] || keys['D']) p1.vx = 4;
+      else p1.vx *= 0.8;
+
+      if ((keys['w'] || keys['W']) && p1.isGrounded) {
+        p1.vy = -12;
+        p1.isGrounded = false;
+      }
+      if (keys[' '] && p1.punch === 0) {
+        p1.punch = 12;
+      }
+
+      // P2 input (ArrowLeft/ArrowRight/ArrowUp + Enter)
+      if (keys['ArrowLeft']) p2.vx = -4;
+      else if (keys['ArrowRight']) p2.vx = 4;
+      else p2.vx *= 0.8;
+
+      if (keys['ArrowUp'] && p2.isGrounded) {
+        p2.vy = -12;
+        p2.isGrounded = false;
+      }
+      if (keys['Enter'] && p2.punch === 0) {
+        p2.punch = 12;
+      }
+
+      // Physics P1
+      p1.x += p1.vx;
+      p1.y += p1.vy;
+      p1.vy += GRAVITY;
+      if (p1.y >= FLOOR - p1.h) {
+        p1.y = FLOOR - p1.h;
+        p1.vy = 0;
+        p1.isGrounded = true;
+      }
+      p1.x = Math.max(10, Math.min(canvas.width - p1.w - 10, p1.x));
+      if (p1.punch > 0) p1.punch--;
+
+      // Physics P2
+      p2.x += p2.vx;
+      p2.y += p2.vy;
+      p2.vy += GRAVITY;
+      if (p2.y >= FLOOR - p2.h) {
+        p2.y = FLOOR - p2.h;
+        p2.vy = 0;
+        p2.isGrounded = true;
+      }
+      p2.x = Math.max(10, Math.min(canvas.width - p2.w - 10, p2.x));
+      if (p2.punch > 0) p2.punch--;
+
+      // Hit detection
+      if (p1.punch === 6 && Math.abs(p1.x - p2.x) < 50 && Math.abs(p1.y - p2.y) < 40) {
+        p2.hp = Math.max(0, p2.hp - 15);
+        p2.vx = 8;
+        p2.vy = -5;
+        if (p2.hp === 0) { p1.score++; p2.hp = 100; p2.x = 640; }
+        updateHUD();
+      }
+      if (p2.punch === 6 && Math.abs(p2.x - p1.x) < 50 && Math.abs(p2.y - p1.y) < 40) {
+        p1.hp = Math.max(0, p1.hp - 15);
+        p1.vx = -8;
+        p1.vy = -5;
+        if (p1.hp === 0) { p2.score++; p1.hp = 100; p1.x = 120; }
+        updateHUD();
+      }
+    }
+
+    function updateHUD() {
+      document.getElementById('p1-hp').innerText = p1.hp;
+      document.getElementById('p2-hp').innerText = p2.hp;
+      document.getElementById('p1-score').innerText = p1.score;
+      document.getElementById('p2-score').innerText = p2.score;
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Floor
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(0, FLOOR, canvas.width, canvas.height - FLOOR);
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, FLOOR);
+      ctx.lineTo(canvas.width, FLOOR);
+      ctx.stroke();
+
+      // P1
+      ctx.fillStyle = p1.color;
+      ctx.fillRect(p1.x, p1.y, p1.w, p1.h);
+      if (p1.punch > 0) {
+        ctx.fillStyle = '#67e8f9';
+        ctx.fillRect(p1.x + p1.w, p1.y + 16, 20, 10);
+      }
+
+      // P2
+      ctx.fillStyle = p2.color;
+      ctx.fillRect(p2.x, p2.y, p2.w, p2.h);
+      if (p2.punch > 0) {
+        ctx.fillStyle = '#fda4af';
+        ctx.fillRect(p2.x - 20, p2.y + 16, 20, 10);
+      }
+
+      requestAnimationFrame(() => {
+        update();
+        draw();
+      });
+    }
+
+    draw();
+  </script>
+</body>
+</html>
+

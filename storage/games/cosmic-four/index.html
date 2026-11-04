@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cosmic Connect 4</title>
+  <script src="/sdk/multiplayer-sdk.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body {
+      background: #090814;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 10px;
+    }
+    #top-bar {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      margin-bottom: 20px;
+    }
+    .player-badge {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(30, 41, 59, 0.7);
+      padding: 8px 18px;
+      border-radius: 20px;
+      border: 2px solid transparent;
+      transition: all 0.3s ease;
+    }
+    .badge-p1.turn { border-color: #06b6d4; box-shadow: 0 0 20px rgba(6, 182, 212, 0.5); }
+    .badge-p2.turn { border-color: #ec4899; box-shadow: 0 0 20px rgba(236, 72, 153, 0.5); }
+    .disc-preview {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+    }
+    .disc-p1 { background: radial-gradient(circle at 35% 35%, #67e8f9, #06b6d4); box-shadow: 0 0 8px #06b6d4; }
+    .disc-p2 { background: radial-gradient(circle at 35% 35%, #f472b6, #ec4899); box-shadow: 0 0 8px #ec4899; }
+    #board-wrap {
+      position: relative;
+      background: #111827;
+      padding: 16px;
+      border-radius: 20px;
+      border: 3px solid #1f2937;
+      box-shadow: 0 0 40px rgba(0, 0, 0, 0.8), 0 0 30px rgba(6, 182, 212, 0.15);
+    }
+    #board {
+      display: grid;
+      grid-template-columns: repeat(7, 65px);
+      grid-template-rows: repeat(6, 65px);
+      gap: 10px;
+      background: #1e1b4b;
+      padding: 14px;
+      border-radius: 16px;
+      border: 2px solid #312e81;
+    }
+    .cell {
+      width: 65px;
+      height: 65px;
+      background: #090814;
+      border-radius: 50%;
+      cursor: pointer;
+      position: relative;
+      box-shadow: inset 0 3px 6px rgba(0,0,0,0.8);
+      transition: background 0.2s;
+    }
+    .cell:hover {
+      background: #141226;
+    }
+    .cell.p1 {
+      background: radial-gradient(circle at 35% 35%, #67e8f9, #0891b2);
+      box-shadow: 0 0 15px rgba(6, 182, 212, 0.8);
+    }
+    .cell.p2 {
+      background: radial-gradient(circle at 35% 35%, #f472b6, #db2777);
+      box-shadow: 0 0 15px rgba(236, 72, 153, 0.8);
+    }
+    .cell.win-highlight {
+      animation: pulseWin 0.8s infinite alternate;
+    }
+    @keyframes pulseWin {
+      from { transform: scale(1); filter: brightness(1); }
+      to { transform: scale(1.08); filter: brightness(1.6); box-shadow: 0 0 25px #ffffff; }
+    }
+    #status-msg {
+      margin-top: 15px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    .btn {
+      background: linear-gradient(135deg, #06b6d4, #ec4899);
+      color: white;
+      border: none;
+      padding: 8px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 700;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="top-bar">
+    <div class="player-badge badge-p1" id="badge1">
+      <div class="disc-preview disc-p1"></div>
+      <span id="name-p1">Player 1 (Cyan)</span>
+    </div>
+
+    <div style="font-weight: 800; color: #94a3b8;">VS</div>
+
+    <div class="player-badge badge-p2" id="badge2">
+      <div class="disc-preview disc-p2"></div>
+      <span id="name-p2">Player 2 (Magenta)</span>
+    </div>
+  </div>
+
+  <div id="board-wrap">
+    <div id="board"></div>
+  </div>
+
+  <div id="status-msg">Waiting for game...</div>
+  <button class="btn" id="btn-reset" style="display:none;">Restart Game</button>
+
+  <script>
+    const ROWS = 6;
+    const COLS = 7;
+    let grid = Array(ROWS).fill(null).map(() => Array(COLS).fill(0));
+    let currentTurn = 1; // 1 = P1, 2 = P2
+    let gameOver = false;
+    let myIndex = 0; // 0 for P1, 1 for P2
+
+    const SDK = window.Multiplayer;
+    const boardEl = document.getElementById('board');
+    const statusEl = document.getElementById('status-msg');
+    const badge1 = document.getElementById('badge1');
+    const badge2 = document.getElementById('badge2');
+    const btnReset = document.getElementById('btn-reset');
+
+    // Build grid cells
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.dataset.row = r;
+        cell.dataset.col = c;
+        cell.addEventListener('click', () => handleColumnClick(c));
+        boardEl.appendChild(cell);
+      }
+    }
+
+    SDK.on('connect', (info) => {
+      myIndex = info.player.index || 0;
+      updateNames();
+      loadSavedBoard();
+    });
+
+    SDK.on('players', () => updateNames());
+
+    function updateNames() {
+      const pl = SDK.getPlayers();
+      if (pl[0]) document.getElementById('name-p1').innerText = (myIndex === 0 ? '★ YOU: ' : '') + pl[0].name;
+      if (pl[1]) document.getElementById('name-p2').innerText = (myIndex === 1 ? '★ YOU: ' : '') + pl[1].name;
+      else document.getElementById('name-p2').innerText = 'P2 (Waiting/AI)';
+      updateTurnUI();
+    }
+
+    async function loadSavedBoard() {
+      try {
+        const saved = await SDK.loadData('saved_board');
+        if (saved && saved.grid && !gameOver) {
+          grid = saved.grid;
+          currentTurn = saved.turn;
+          renderGrid();
+          updateTurnUI();
+        }
+      } catch(e) {}
+    }
+
+    async function saveBoardState() {
+      try {
+        await SDK.saveData('saved_board', {
+          grid,
+          turn: currentTurn,
+          updatedAt: new Date().toISOString()
+        });
+      } catch(e) {}
+    }
+
+    function updateTurnUI() {
+      if (gameOver) return;
+      badge1.classList.toggle('turn', currentTurn === 1);
+      badge2.classList.toggle('turn', currentTurn === 2);
+
+      const isMyTurn = (currentTurn === 1 && myIndex === 0) || (currentTurn === 2 && myIndex === 1);
+      if (isMyTurn) {
+        statusEl.innerHTML = `<span style="color:#22c55e;">Your turn! Drop your disc.</span>`;
+      } else {
+        const pl = SDK.getPlayers();
+        const otherName = pl[currentTurn - 1] ? pl[currentTurn - 1].name : (currentTurn === 1 ? 'Player 1' : 'Player 2');
+        statusEl.innerHTML = `<span style="color:#94a3b8;">Waiting for ${otherName}...</span>`;
+      }
+    }
+
+    function handleColumnClick(c) {
+      if (gameOver) return;
+      const isMyTurn = (currentTurn === 1 && myIndex === 0) || (currentTurn === 2 && myIndex === 1);
+      if (!isMyTurn) return;
+
+      dropDisc(c, currentTurn);
+      SDK.send('disc_drop', { col: c, player: currentTurn });
+    }
+
+    SDK.on('disc_drop', (data) => {
+      dropDisc(data.col, data.player);
+    });
+
+    SDK.on('restart_board', () => {
+      resetBoard();
+    });
+
+    function dropDisc(c, playerNum) {
+      for (let r = ROWS - 1; r >= 0; r--) {
+        if (grid[r][c] === 0) {
+          grid[r][c] = playerNum;
+          renderGrid();
+          saveBoardState();
+
+          const winningCells = checkWin(r, c, playerNum);
+          if (winningCells) {
+            handleVictory(playerNum, winningCells);
+          } else if (checkDraw()) {
+            handleDraw();
+          } else {
+            currentTurn = currentTurn === 1 ? 2 : 1;
+            updateTurnUI();
+          }
+          return;
+        }
+      }
+    }
+
+    function renderGrid() {
+      const cells = boardEl.querySelectorAll('.cell');
+      cells.forEach(cell => {
+        const r = parseInt(cell.dataset.row);
+        const c = parseInt(cell.dataset.col);
+        cell.className = 'cell';
+        if (grid[r][c] === 1) cell.classList.add('p1');
+        else if (grid[r][c] === 2) cell.classList.add('p2');
+      });
+    }
+
+    function checkWin(r, c, player) {
+      const directions = [
+        [[0, 1], [0, -1]], // Horizontal
+        [[1, 0], [-1, 0]], // Vertical
+        [[1, 1], [-1, -1]], // Diagonal \
+        [[1, -1], [-1, 1]]  // Diagonal /
+      ];
+
+      for (const dir of directions) {
+        let count = 1;
+        let coords = [[r, c]];
+        for (const [dr, dc] of dir) {
+          let step = 1;
+          while (true) {
+            const nr = r + dr * step;
+            const nc = c + dc * step;
+            if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && grid[nr][nc] === player) {
+              count++;
+              coords.push([nr, nc]);
+              step++;
+            } else break;
+          }
+        }
+        if (count >= 4) return coords;
+      }
+      return null;
+    }
+
+    function checkDraw() {
+      return grid.every(row => row.every(cell => cell !== 0));
+    }
+
+    function handleVictory(playerNum, coords) {
+      gameOver = true;
+      btnReset.style.display = 'inline-block';
+      coords.forEach(([r, c]) => {
+        const el = boardEl.querySelector(`.cell[data-row="${r}"][data-col="${c}"]`);
+        if (el) el.classList.add('win-highlight');
+      });
+
+      const pl = SDK.getPlayers();
+      const winnerName = pl[playerNum - 1] ? pl[playerNum - 1].name : `Player ${playerNum}`;
+      statusEl.innerHTML = `<span style="color:#f59e0b; font-size:1.3rem;">🎉 ${winnerName} Wins the Game!</span>`;
+
+      SDK.submitScore(100, { winner: winnerName });
+      SDK.gameOver(playerNum - 1, { winner: winnerName });
+    }
+
+    function handleDraw() {
+      gameOver = true;
+      btnReset.style.display = 'inline-block';
+      statusEl.innerHTML = `<span style="color:#94a3b8;">Match ended in a Draw!</span>`;
+      SDK.gameOver('draw', {});
+    }
+
+    function resetBoard() {
+      grid = Array(ROWS).fill(null).map(() => Array(COLS).fill(0));
+      currentTurn = 1;
+      gameOver = false;
+      btnReset.style.display = 'none';
+      renderGrid();
+      updateTurnUI();
+      saveBoardState();
+    }
+
+    btnReset.addEventListener('click', () => {
+      resetBoard();
+      SDK.send('restart_board', {});
+    });
+
+    renderGrid();
+    updateTurnUI();
+  </script>
+</body>
+</html>
+

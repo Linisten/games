@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Neon Pong Extreme</title>
+  <script src="/sdk/multiplayer-sdk.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body {
+      background: #060814;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    #scoreboard {
+      position: absolute;
+      top: 15px;
+      display: flex;
+      align-items: center;
+      gap: 30px;
+      z-index: 10;
+      font-family: 'Courier New', monospace;
+      font-size: 2.2rem;
+      font-weight: 900;
+    }
+    .score-box {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(15, 23, 42, 0.7);
+      padding: 6px 18px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .score-p1 { color: #00f3ff; text-shadow: 0 0 10px #00f3ff; }
+    .score-p2 { color: #ff0077; text-shadow: 0 0 10px #ff0077; }
+    #canvas-wrap {
+      position: relative;
+      border: 2px solid #1e293b;
+      border-radius: 16px;
+      box-shadow: 0 0 50px rgba(0, 243, 255, 0.15), 0 0 30px rgba(255, 0, 119, 0.15);
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      background: radial-gradient(circle at center, #0b1120 0%, #030712 100%);
+    }
+    #overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(3, 7, 18, 0.85);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 15px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+      z-index: 20;
+    }
+    #overlay.active { opacity: 1; pointer-events: auto; }
+    .btn {
+      background: linear-gradient(135deg, #00f3ff, #ff0077);
+      color: white;
+      border: none;
+      padding: 12px 28px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+    .sub-hint {
+      position: absolute;
+      bottom: 15px;
+      color: #64748b;
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="scoreboard">
+    <div class="score-box">
+      <span style="font-size: 1rem; color: #94a3b8;" id="p1-label">P1 (Blue)</span>
+      <span class="score-p1" id="s1">0</span>
+    </div>
+    <span style="color: #475569; font-size: 1.4rem;">:</span>
+    <div class="score-box">
+      <span class="score-p2" id="s2">0</span>
+      <span style="font-size: 1rem; color: #94a3b8;" id="p2-label">P2 (Pink)</span>
+    </div>
+  </div>
+
+  <div id="canvas-wrap">
+    <canvas id="pongCanvas" width="850" height="520"></canvas>
+    <div id="overlay">
+      <h1 id="win-title" style="font-size: 2.5rem; font-weight: 900; letter-spacing: 2px;">VICTORY</h1>
+      <p id="win-desc" style="color: #94a3b8;">Saved to local system database.</p>
+      <button class="btn" id="btn-again">Play Rematch</button>
+    </div>
+  </div>
+
+  <div class="sub-hint">
+    Move paddle with Mouse or W/S / Up/Down Keys &bull; First to 7 Wins
+  </div>
+
+  <script>
+    const canvas = document.getElementById('pongCanvas');
+    const ctx = canvas.getContext('2d');
+    const SDK = window.Multiplayer;
+
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function beep(freq, duration = 0.08) {
+      try {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        g.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        g.gain.linearRampToValueAtTime(0, audioCtx.currentTime + duration);
+        o.connect(g);
+        g.connect(audioCtx.destination);
+        o.start();
+        o.stop(audioCtx.currentTime + duration);
+      } catch(e) {}
+    }
+
+    const PADDLE_H = 100;
+    const PADDLE_W = 14;
+    const WIN_SCORE = 7;
+
+    let p1 = { y: 210, score: 0 };
+    let p2 = { y: 210, score: 0 };
+    let ball = { x: 425, y: 260, vx: 5, vy: 3, radius: 8 };
+    let myIndex = 0;
+    let matchOver = false;
+    let isMultiplayer = false;
+
+    SDK.on('connect', (info) => {
+      myIndex = info.player.index || 0;
+      updateLabels();
+      loadSavedHistory();
+    });
+
+    SDK.on('players', (players) => {
+      isMultiplayer = players.length > 1;
+      updateLabels();
+    });
+
+    function updateLabels() {
+      const pl = SDK.getPlayers();
+      if (pl[0]) document.getElementById('p1-label').innerText = (myIndex === 0 ? '★ YOU: ' : '') + pl[0].name;
+      if (pl[1]) document.getElementById('p2-label').innerText = (myIndex === 1 ? '★ YOU: ' : '') + pl[1].name;
+      else document.getElementById('p2-label').innerText = 'P2 (Waiting/AI)';
+    }
+
+    async function loadSavedHistory() {
+      try {
+        const saved = await SDK.loadData('pong_score_record');
+        if (saved) {
+          console.log('[System Storage] Loaded pong record:', saved);
+        }
+      } catch(e) {}
+    }
+
+    // Input handlers
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const myY = (e.clientY - rect.top) * (canvas.height / rect.height) - PADDLE_H / 2;
+      const clampedY = Math.max(10, Math.min(canvas.height - PADDLE_H - 10, myY));
+
+      if (myIndex === 0) p1.y = clampedY;
+      else p2.y = clampedY;
+
+      // Broadcast paddle position
+      SDK.send('paddle_pos', { index: myIndex, y: clampedY });
+    });
+
+    window.addEventListener('keydown', (e) => {
+      const speed = 25;
+      let target = myIndex === 0 ? p1 : p2;
+      if (e.key === 'ArrowUp' || e.key.toLowerCase() === 'w') {
+        target.y = Math.max(10, target.y - speed);
+      } else if (e.key === 'ArrowDown' || e.key.toLowerCase() === 's') {
+        target.y = Math.min(canvas.height - PADDLE_H - 10, target.y + speed);
+      }
+      SDK.send('paddle_pos', { index: myIndex, y: target.y });
+    });
+
+    // Network Sync
+    SDK.on('paddle_pos', (data) => {
+      if (data.index === 0) p1.y = data.y;
+      else if (data.index === 1) p2.y = data.y;
+    });
+
+    SDK.on('ball_sync', (b) => {
+      if (!SDK.isHost()) {
+        ball.x = b.x;
+        ball.y = b.y;
+        ball.vx = b.vx;
+        ball.vy = b.vy;
+      }
+    });
+
+    SDK.on('score_sync', (s) => {
+      p1.score = s.s1;
+      p2.score = s.s2;
+      updateScoreUI();
+    });
+
+    SDK.on('pong_reset', () => {
+      resetMatch();
+    });
+
+    function resetBall(servingPlayer) {
+      ball.x = canvas.width / 2;
+      ball.y = canvas.height / 2;
+      const dir = servingPlayer === 1 ? 1 : -1;
+      const speed = 5.5;
+      const angle = (Math.random() - 0.5) * (Math.PI / 3);
+      ball.vx = Math.cos(angle) * speed * dir;
+      ball.vy = Math.sin(angle) * speed;
+    }
+
+    function updateScoreUI() {
+      document.getElementById('s1').innerText = p1.score;
+      document.getElementById('s2').innerText = p2.score;
+    }
+
+    // Host authoritative physics loop
+    function updatePhysics() {
+      if (matchOver) return;
+
+      // Solo AI for P2 if guest not yet joined
+      if (!isMultiplayer && SDK.isHost()) {
+        const dest = ball.y - PADDLE_H / 2;
+        p2.y += (dest - p2.y) * 0.08;
+        p2.y = Math.max(10, Math.min(canvas.height - PADDLE_H - 10, p2.y));
+      }
+
+      if (SDK.isHost()) {
+        ball.x += ball.vx;
+        ball.y += ball.vy;
+
+        // Bounce Top / Bottom
+        if (ball.y - ball.radius <= 0) {
+          ball.y = ball.radius;
+          ball.vy = -ball.vy;
+          beep(300);
+        } else if (ball.y + ball.radius >= canvas.height) {
+          ball.y = canvas.height - ball.radius;
+          ball.vy = -ball.vy;
+          beep(300);
+        }
+
+        // P1 Collision (Left)
+        if (ball.x - ball.radius <= 30 + PADDLE_W && ball.x - ball.radius >= 20) {
+          if (ball.y >= p1.y && ball.y <= p1.y + PADDLE_H) {
+            const hitPoint = (ball.y - (p1.y + PADDLE_H / 2)) / (PADDLE_H / 2);
+            const speed = Math.min(13, Math.hypot(ball.vx, ball.vy) * 1.05);
+            const angle = hitPoint * (Math.PI / 3.5);
+            ball.vx = Math.cos(angle) * speed;
+            ball.vy = Math.sin(angle) * speed;
+            ball.x = 30 + PADDLE_W + ball.radius;
+            beep(520);
+          }
+        }
+
+        // P2 Collision (Right)
+        if (ball.x + ball.radius >= canvas.width - 30 - PADDLE_W && ball.x + ball.radius <= canvas.width - 20) {
+          if (ball.y >= p2.y && ball.y <= p2.y + PADDLE_H) {
+            const hitPoint = (ball.y - (p2.y + PADDLE_H / 2)) / (PADDLE_H / 2);
+            const speed = Math.min(13, Math.hypot(ball.vx, ball.vy) * 1.05);
+            const angle = hitPoint * (Math.PI / 3.5);
+            ball.vx = -Math.cos(angle) * speed;
+            ball.vy = Math.sin(angle) * speed;
+            ball.x = canvas.width - 30 - PADDLE_W - ball.radius;
+            beep(440);
+          }
+        }
+
+        // Scoring
+        if (ball.x < 0) {
+          p2.score++;
+          beep(180, 0.3);
+          updateScoreUI();
+          SDK.send('score_sync', { s1: p1.score, s2: p2.score });
+          checkGameOver();
+          if (!matchOver) resetBall(1);
+        } else if (ball.x > canvas.width) {
+          p1.score++;
+          beep(700, 0.3);
+          updateScoreUI();
+          SDK.send('score_sync', { s1: p1.score, s2: p2.score });
+          checkGameOver();
+          if (!matchOver) resetBall(2);
+        }
+
+        // Broadcast ball to guest
+        SDK.send('ball_sync', ball);
+      }
+    }
+
+    async function checkGameOver() {
+      if (p1.score >= WIN_SCORE || p2.score >= WIN_SCORE) {
+        matchOver = true;
+        const winner = p1.score >= WIN_SCORE ? 0 : 1;
+        const players = SDK.getPlayers();
+        const winnerName = players[winner] ? players[winner].name : (winner === 0 ? 'Player 1' : 'Player 2');
+
+        document.getElementById('win-title').innerText = `${winnerName.toUpperCase()} WINS!`;
+        document.getElementById('overlay').classList.add('active');
+
+        // Save persistently to system database
+        await SDK.saveData('pong_score_record', {
+          lastWinner: winnerName,
+          p1Score: p1.score,
+          p2Score: p2.score,
+          timestamp: new Date().toISOString()
+        });
+        SDK.submitScore(Math.max(p1.score, p2.score), { p1: p1.score, p2: p2.score });
+        SDK.gameOver(winner, { p1: p1.score, p2: p2.score });
+      }
+    }
+
+    function resetMatch() {
+      matchOver = false;
+      p1.score = 0;
+      p2.score = 0;
+      updateScoreUI();
+      document.getElementById('overlay').classList.remove('active');
+      if (SDK.isHost()) resetBall(1);
+    }
+
+    document.getElementById('btn-again').addEventListener('click', () => {
+      resetMatch();
+      SDK.send('pong_reset', {});
+    });
+
+    // Render loop
+    function render() {
+      updatePhysics();
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Center dotted line
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([10, 10]);
+      ctx.beginPath();
+      ctx.moveTo(canvas.width / 2, 0);
+      ctx.lineTo(canvas.width / 2, canvas.height);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // P1 Paddle (Blue)
+      ctx.save();
+      ctx.fillStyle = '#00f3ff';
+      ctx.shadowColor = '#00f3ff';
+      ctx.shadowBlur = 15;
+      ctx.fillRect(30, p1.y, PADDLE_W, PADDLE_H);
+      ctx.restore();
+
+      // P2 Paddle (Pink)
+      ctx.save();
+      ctx.fillStyle = '#ff0077';
+      ctx.shadowColor = '#ff0077';
+      ctx.shadowBlur = 15;
+      ctx.fillRect(canvas.width - 30 - PADDLE_W, p2.y, PADDLE_W, PADDLE_H);
+      ctx.restore();
+
+      // Ball
+      ctx.save();
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = '#ffffff';
+      ctx.shadowBlur = 16;
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      requestAnimationFrame(render);
+    }
+
+    resetBall(1);
+    render();
+  </script>
+</body>
+</html>
+

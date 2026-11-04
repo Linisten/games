@@ -1,0 +1,7 @@
+node_modules/
+storage/games/It Takes Two/
+*.exe
+*.dll
+*.dat
+*.log
+.gemini/

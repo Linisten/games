@@ -1,0 +1,109 @@
+{
+  "games": [],
+  "saves": [
+    {
+      "id": "cosmic-four_saved_board_1793795240192",
+      "gameId": "cosmic-four",
+      "player": "Player 1",
+      "roomCode": "S4WDK",
+      "key": "saved_board",
+      "data": {
+        "grid": [
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        ],
+        "turn": 1,
+        "updatedAt": "2026-11-04T12:27:20.190Z"
+      },
+      "updatedAt": "2026-11-04T12:27:20.192Z"
+    }
+  ],
+  "scores": [],
+  "sessions": [
+    {
+      "id": "sess_1793795238898",
+      "roomCode": "S4WDK",
+      "gameId": "cosmic-four",
+      "gameTitle": "Cosmic Connect 4",
+      "players": [
+        {
+          "name": "Player 1",
+          "isHost": true
+        }
+      ],
+      "startTime": "2026-11-04T12:27:18.898Z",
+      "loggedAt": "2026-11-04T12:27:18.898Z"
+    },
+    {
+      "id": "sess_1793795222938",
+      "roomCode": "X556T",
+      "gameId": "neon-pong",
+      "gameTitle": "Neon Pong Extreme",
+      "players": [
+        {
+          "name": "Player 1",
+          "isHost": true
+        }
+      ],
+      "startTime": "2026-11-04T12:27:02.938Z",
+      "loggedAt": "2026-11-04T12:27:02.938Z"
+    }
+  ],
+  "settings": {
+    "platformName": "ArcadeNexus Multiplayer",
+    "allowPublicUploads": true,
+    "created": "2026-11-04T12:00:00.000Z"
+  }
+}

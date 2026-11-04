@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ArcadeNexus | Remote Couch Co-Op</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=JetBrains+Mono:wght@700;900&display=swap" rel="stylesheet">
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/audio.js"></script>
+</head>
+<body>
+
+  <!-- Top Minimal Header -->
+  <header>
+    <div class="brand" onclick="showScreen('home')">
+      <div class="brand-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+      </div>
+      <div>Arcade<span>Nexus</span></div>
+    </div>
+
+    <div class="header-right">
+      <div class="status-pill online" id="host-network-pill" title="Friends on same Wi-Fi can join via this link">
+        <span class="dot"></span>
+        <span id="host-ip-label">Ready</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main>
+
+    <!-- ========================================== -->
+    <!-- SCREEN 1: SUPER SIMPLE HOME (2 BIG BUTTONS) -->
+    <!-- ========================================== -->
+    <div id="screen-home" class="screen active">
+      <div class="choice-title">
+        <h1>Play Co-Op Games Online</h1>
+        <p>Two players, two different places, one game. All saves stay on your system &mdash; your friend downloads 0 MB!</p>
+      </div>
+
+      <div class="choice-grid">
+        <!-- Option 1: HOST -->
+        <div class="choice-card" onclick="startHostFlow()">
+          <div class="choice-icon host">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+          </div>
+          <h2>I Want to HOST</h2>
+          <p>I have <b>It Takes Two</b> or other co-op games installed on my PC. I want to invite my friend to play with me.</p>
+          <button class="btn-big-host">Host a Game</button>
+        </div>
+
+        <!-- Option 2: JOIN -->
+        <div class="choice-card join" onclick="showScreen('guest')">
+          <div class="choice-icon join">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+          </div>
+          <h2>I Want to JOIN</h2>
+          <p>My friend is hosting. I have a <b>Room Code</b>. I don't need to download the game &mdash; I will play with my joystick!</p>
+          <button class="btn-big-join">Join with Code</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- SCREEN 2: HOST FLOW (3 SIMPLE STEPS)       -->
+    <!-- ========================================== -->
+    <div id="screen-host" class="screen">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+        <button class="btn-subtle" onclick="showScreen('home')">← Back to Home</button>
+        <span class="status-pill waiting" id="host-status-indicator">
+          <span class="dot"></span>
+          <span id="host-status-text">1/2 Players Joined (Waiting for Friend...)</span>
+        </span>
+      </div>
+
+      <!-- Connected Players & Controllers Status Card -->
+      <div class="players-status-card" style="background:#0b1120; border:1px solid rgba(0, 243, 255, 0.3); border-radius:14px; padding:1.1rem 1.4rem; margin-bottom:1.5rem; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+        <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); margin-bottom:0.8rem; font-weight:700;">
+          👥 Players Joined & Connected Controllers
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1.2rem;">
+          <!-- Player 1 Host -->
+          <div style="display:flex; align-items:center; gap:0.9rem; flex:1; min-width:240px;">
+            <div style="background:rgba(56, 189, 248, 0.15); border:1px solid #38bdf8; color:#38bdf8; border-radius:10px; padding:0.5rem 0.8rem; font-weight:800; font-size:0.9rem;">
+              Player 1
+            </div>
+            <div>
+              <div style="font-weight:700; color:#f8fafc; font-size:0.95rem;">Host (You)</div>
+              <div style="font-size:0.82rem; color:#34d399; display:flex; align-items:center; gap:0.4rem; font-weight:600;">
+                <span class="dot" style="background:#34d399;"></span> Controller 1 / Keyboard Connected
+              </div>
+            </div>
+          </div>
+
+          <div style="color:var(--text-muted); font-size:1.1rem; font-weight:700;">•</div>
+
+          <!-- Player 2 Guest -->
+          <div style="display:flex; align-items:center; gap:0.9rem; flex:1; min-width:240px;">
+            <div id="p2-badge" style="background:rgba(245, 158, 11, 0.15); border:1px solid #fbbf24; color:#fbbf24; border-radius:10px; padding:0.5rem 0.8rem; font-weight:800; font-size:0.9rem;">
+              Player 2
+            </div>
+            <div>
+              <div id="p2-name-display" style="font-weight:700; color:#cbd5e1; font-size:0.95rem;">Waiting for Friend...</div>
+              <div id="p2-controller-display" style="font-size:0.82rem; color:#fbbf24; display:flex; align-items:center; gap:0.4rem; font-weight:600;">
+                <span class="dot" id="p2-dot" style="background:#fbbf24;"></span> Controller 2: Not Connected (Enter Room Code)
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 1: Game Selection & Launch from C:\Games -->
+      <div class="step-card" style="border-color: rgba(0, 243, 255, 0.4); background: linear-gradient(135deg, rgba(18, 24, 43, 0.9), rgba(10, 25, 45, 0.8));">
+        <div class="step-header">
+          <div class="step-num">1</div>
+          <div>
+            <h3>Choose & Launch Game</h3>
+            <p style="color:var(--text-muted); font-size:0.9rem;">Games detected in your games folder (<span id="folder-display-tag" style="color:var(--accent-cyan); font-family:monospace;">C:\Games</span>)</p>
+          </div>
+        </div>
+
+        <!-- Folder configuration -->
+        <div style="display:flex; gap:0.6rem; align-items:center; margin-bottom:1rem;">
+          <input type="text" id="host-games-folder" value="C:\Games" onkeydown="if(event.key==='Enter') scanHostGames()" style="flex:1; background:#0b1120; border:1px solid rgba(255,255,255,0.15); color:#f8fafc; padding:0.6rem 0.9rem; border-radius:8px; font-family:monospace; font-size:0.9rem;" placeholder="e.g. C:\Games">
+          <button class="btn-subtle" id="btn-scan-folder" onclick="scanHostGames()" style="padding:0.6rem 1rem; white-space:nowrap; cursor:pointer;">🔄 Scan Folder</button>
+        </div>
+
+        <!-- Detected Game Picker -->
+        <div style="margin-bottom:1rem;">
+          <label style="font-size:0.85rem; color:var(--text-muted); display:block; margin-bottom:0.4rem; font-weight:600;">Detected Games:</label>
+          <select id="host-game-select" class="game-select-dropdown" onchange="onGameSelected()"></select>
+        </div>
+
+        <div id="selected-game-path" style="font-size:0.8rem; color:#94a3b8; font-family:monospace; word-break:break-all; margin-bottom:1.2rem; background:rgba(0,0,0,0.3); padding:0.6rem 0.9rem; border-radius:8px; border:1px solid rgba(255,255,255,0.06);">
+          Loading games...
+        </div>
+
+        <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
+          <button class="btn-big-host" id="btn-launch-game" style="flex:1; min-width:280px;" onclick="launchSelectedGame()">
+            🚀 1-Click Launch & Stream Selected Game
+          </button>
+          <span style="font-size:0.85rem; color:var(--text-muted);">or launch it directly from Windows</span>
+        </div>
+      </div>
+
+      <!-- Step 2: Share Room Code -->
+      <div class="step-card">
+        <div class="step-header">
+          <div class="step-num">2</div>
+          <div>
+            <h3>Give This Code to Your Friend</h3>
+            <p style="color:var(--text-muted); font-size:0.9rem;">Your friend enters this code to join with their joystick</p>
+          </div>
+        </div>
+        <div class="big-code-container">
+          <div>
+            <div style="font-size:0.8rem; color:var(--text-muted); text-transform:uppercase;">Room Code</div>
+            <div class="big-code-val" id="display-room-code">------</div>
+          </div>
+          <button class="btn-subtle" style="padding:0.8rem 1.4rem; font-size:1rem; color:white; background:rgba(0, 243, 255, 0.2); border-color:var(--accent-cyan);" onclick="copyRoomLink()">
+            📋 Copy Invite Link
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 3: Stream Video & Sound -->
+      <div class="step-card">
+        <div class="step-header">
+          <div class="step-num">3</div>
+          <div>
+            <h3>Share Game Screen & Sound</h3>
+            <p style="color:var(--text-muted); font-size:0.9rem;">Select the game window and check "Share audio" (or use 1-click launch above)</p>
+          </div>
+        </div>
+
+        <!-- Primary Streaming Controls with Prominent Stop Button -->
+        <div style="display:flex; gap:1rem; align-items:center; margin-bottom:1.2rem; flex-wrap:wrap;">
+          <button class="btn-big-host" id="btn-share-screen" style="flex:2; min-width:260px; background:linear-gradient(135deg, #10b981, #059669); color:white;" onclick="startHostScreenShare()">
+            📺 Select Game Window & Stream
+          </button>
+          <button class="btn-stop-stream" id="btn-stop-stream" style="flex:1; min-width:180px; display:none;" onclick="stopHostStream()">
+            ⏹ Stop Streaming
+          </button>
+        </div>
+
+        <!-- Live Streaming Active Banner -->
+        <div id="host-live-banner" style="display:none; justify-content:space-between; align-items:center; background:rgba(239, 68, 68, 0.15); border:1px solid rgba(239, 68, 68, 0.4); padding:0.6rem 1rem; border-radius:10px; margin-bottom:0.8rem;">
+          <span style="color:#f87171; font-weight:700; font-size:0.95rem; display:flex; align-items:center; gap:0.6rem;">
+            <span class="dot" style="background:#ef4444;"></span> LIVE STREAMING ACTIVE
+          </span>
+          <button class="btn-stop-stream" style="padding:0.4rem 1rem; font-size:0.85rem;" onclick="stopHostStream()">
+            ⏹ Stop Streaming
+          </button>
+        </div>
+
+        <div class="player-view-container" style="max-height: 380px;">
+          <video id="host-stream-preview" autoplay muted playsinline></video>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- SCREEN 3: GUEST FLOW (ENTER CODE & PLAY)   -->
+    <!-- ========================================== -->
+    <div id="screen-guest" class="screen">
+      <div style="margin-bottom:1.5rem;" id="guest-back-btn-wrap">
+        <button class="btn-subtle" id="guest-back-btn" onclick="showScreen('home')">← Back to Home</button>
+      </div>
+
+      <!-- Join Box -->
+      <div id="guest-join-box" class="join-box">
+        <div class="choice-icon join" style="margin: 0 auto 1.2rem auto;">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+        </div>
+        <h2 style="font-size:1.8rem; margin-bottom:0.4rem;">Join Your Friend's Game</h2>
+        <p style="color:var(--text-muted); margin-bottom:1.5rem;">Enter the 5-character code your friend gave you.</p>
+
+        <input type="text" id="guest-room-code-input" class="code-input-field" placeholder="CODE" maxlength="6" autofocus>
+
+        <button class="btn-big-join" id="btn-guest-connect" onclick="connectGuestToStream()">
+          🎮 Connect & Play as Player 2
+        </button>
+
+        <div style="margin-top:1.5rem; padding:1rem; background:rgba(255,255,255,0.03); border-radius:12px; font-size:0.85rem; color:var(--text-muted);">
+          <b>Controls:</b> Plug in your joystick (Xbox/PlayStation) or use <b>Arrow Keys + Enter</b> on your keyboard!
+        </div>
+      </div>
+
+      <!-- Live Stream Player (Direct Fullscreen when connected) -->
+      <div id="guest-stream-view" style="display:none; width: 100vw; height: 100vh; position: fixed; inset: 0; background: #000; z-index: 99999;">
+        <!-- Waiting screen (visible while waiting for host to enter / share window) -->
+        <div id="guest-waiting-host" style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(circle at center, #0f172a 0%, #020617 100%); z-index: 10; text-align: center; padding: 2rem;">
+          <div style="width: 60px; height: 60px; border: 4px solid rgba(0, 243, 255, 0.2); border-top-color: var(--accent-cyan); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 1.5rem;"></div>
+          <h2 style="font-size: 2.2rem; font-weight: 900; margin-bottom: 0.6rem; letter-spacing: -0.5px;">Connected to Room!</h2>
+          <p style="color: #94a3b8; font-size: 1.15rem; max-width: 520px; line-height: 1.5; margin-bottom: 1.8rem;">
+            Waiting for host to share the game window... The game will <b>automatically enter full screen</b> once the host begins!
+          </p>
+          <div style="padding: 0.8rem 1.6rem; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 20px; font-size: 0.95rem; color: #34d399; font-weight: 700;">
+            🎮 Player 2 Controller is Ready &bull; Plug in your joystick or use Arrow Keys
+          </div>
+        </div>
+
+        <!-- Video Element -->
+        <video id="guest-remote-video" autoplay playsinline style="width: 100%; height: 100%; object-fit: contain; background: #000; display: block;"></video>
+
+        <!-- Unmute prompt if browser blocks sound -->
+        <div id="play-sound-overlay" style="display:none; position:absolute; inset:0; background:rgba(0,0,0,0.7); display:flex; flex-direction:column; align-items:center; justify-content:center; cursor:pointer; z-index: 20;" onclick="unmuteGuestVideo()">
+          <div style="font-size:3.5rem; margin-bottom:0.5rem;">🔊</div>
+          <div style="font-size:1.4rem; font-weight:bold; color:white;">Click Anywhere to Enable Game Sound</div>
+          <div style="font-size:0.85rem; color:#94a3b8; margin-top:0.3rem;">Browser audio permission required</div>
+        </div>
+
+        <!-- Floating auto-hiding top HUD -->
+        <div id="guest-fullscreen-hud" style="position: absolute; top: 15px; left: 20px; right: 20px; display: flex; justify-content: space-between; align-items: center; pointer-events: none; z-index: 30;">
+          <div style="background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px); padding: 6px 14px; border-radius: 20px; font-size: 0.85rem; border: 1px solid var(--border-color); display: flex; align-items: center; gap: 8px;">
+            <span class="dot" style="background: #10b981;"></span>
+            <span id="guest-joystick-hud" style="color: #34d399; font-weight: 700;">Controller 2 Active</span>
+          </div>
+          <button style="pointer-events: auto; background: rgba(15, 23, 42, 0.85); border: 1px solid var(--border-color); color: #fff; padding: 6px 14px; border-radius: 20px; font-size: 0.85rem; cursor: pointer;" onclick="exitFullscreenGuest()">
+            ✕ Exit Fullscreen
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- SCREEN 4: EXTRAS (WEB GAMES & STORAGE)     -->
+    <!-- ========================================== -->
+    <div id="screen-extras" class="screen">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+        <button class="btn-subtle" onclick="showScreen('home')">← Back to Home</button>
+        <a href="/api/storage/export" download class="btn-subtle">💾 Download Full System Backup (.json)</a>
+      </div>
+
+      <div class="step-card">
+        <h3 style="margin-bottom:0.6rem;">System Save Storage Location</h3>
+        <p style="color:var(--text-muted); font-size:0.9rem;">
+          All game data, saves, and configs are stored locally on your hard drive at:
+        </p>
+        <code style="display:block; background:#020617; padding:0.8rem; border-radius:8px; margin:0.8rem 0; color:var(--accent-cyan); font-family:var(--font-mono);">
+          c:\Users\slini\multi\storage
+        </code>
+      </div>
+
+      <div class="step-card">
+        <h3 style="margin-bottom:1rem;">Built-in Web Multiplayer Games</h3>
+        <div id="extras-games-list" style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+          <!-- Loaded dynamically -->
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Notification Toast -->
+  <div id="toast">
+    <span id="toast-icon">ℹ️</span>
+    <span id="toast-text">Message</span>
+  </div>
+
+  <script src="/js/couchplay.js?v=3"></script>
+  <script src="/js/simple-app.js?v=3"></script>
+</body>
+</html>

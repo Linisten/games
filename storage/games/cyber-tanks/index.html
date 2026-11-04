@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cyber Tank Arena</title>
+  <script src="/sdk/multiplayer-sdk.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body {
+      background: #090a10;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    #hud {
+      position: absolute;
+      top: 12px;
+      left: 20px;
+      right: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .player-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(8px);
+      padding: 8px 16px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .p1-card { border-color: rgba(56, 189, 248, 0.5); box-shadow: 0 0 15px rgba(56, 189, 248, 0.2); }
+    .p2-card { border-color: rgba(244, 63, 94, 0.5); box-shadow: 0 0 15px rgba(244, 63, 94, 0.2); }
+    .bar-wrap { width: 120px; height: 10px; background: #1e293b; border-radius: 5px; overflow: hidden; }
+    .bar-fill { height: 100%; transition: width 0.15s ease-out; }
+    .p1-fill { background: linear-gradient(90deg, #38bdf8, #0ea5e9); width: 100%; }
+    .p2-fill { background: linear-gradient(90deg, #f43f5e, #e11d48); width: 100%; }
+    #score-center {
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      padding: 6px 18px;
+      border-radius: 20px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      font-size: 1.1rem;
+    }
+    #game-container {
+      position: relative;
+      border: 2px solid #1e293b;
+      border-radius: 16px;
+      box-shadow: 0 0 40px rgba(0, 0, 0, 0.8), 0 0 20px rgba(56, 189, 248, 0.15);
+      overflow: hidden;
+      background: #0d1117;
+    }
+    canvas {
+      display: block;
+      background: #090d16;
+    }
+    #overlay-banner {
+      position: absolute;
+      inset: 0;
+      background: rgba(10, 15, 26, 0.88);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      z-index: 20;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    #overlay-banner.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .btn {
+      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      color: white;
+      border: none;
+      padding: 10px 24px;
+      font-size: 1rem;
+      font-weight: 600;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: transform 0.1s, box-shadow 0.2s;
+    }
+    .btn:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 15px rgba(99, 102, 241, 0.5);
+    }
+    #controls-hint {
+      position: absolute;
+      bottom: 12px;
+      color: #64748b;
+      font-size: 0.8rem;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="hud">
+    <div class="player-card p1-card">
+      <div>
+        <div style="font-weight: 700; color: #38bdf8;" id="p1-name">P1: Blue Tank</div>
+        <div class="bar-wrap"><div class="bar-fill p1-fill" id="p1-hp"></div></div>
+      </div>
+      <div id="p1-wins" style="font-size: 1.2rem; font-weight: 800;">0</div>
+    </div>
+
+    <div id="score-center">
+      <span style="color:#38bdf8" id="s1">0</span>
+      <span style="color:#64748b; margin: 0 6px;">VS</span>
+      <span style="color:#f43f5e" id="s2">0</span>
+    </div>
+
+    <div class="player-card p2-card">
+      <div id="p2-wins" style="font-size: 1.2rem; font-weight: 800;">0</div>
+      <div style="text-align: right;">
+        <div style="font-weight: 700; color: #f43f5e;" id="p2-name">P2: Red Tank</div>
+        <div class="bar-wrap"><div class="bar-fill p2-fill" id="p2-hp"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="game-container">
+    <canvas id="gameCanvas" width="800" height="550"></canvas>
+    <div id="overlay-banner">
+      <h1 id="banner-title" style="font-size: 2.2rem; font-weight: 900;">MATCH FINISHED</h1>
+      <p id="banner-sub" style="color: #94a3b8;">Player 1 Wins the Battle!</p>
+      <button class="btn" id="btn-rematch">Play Again</button>
+    </div>
+  </div>
+
+  <div id="controls-hint">
+    WASD or Arrow Keys to Move &bull; Mouse to Aim &bull; Left Click or Space to Shoot
+  </div>
+
+  <script>
+    // Audio synthesis helper
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playLaserSound() {
+      try {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.15);
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.15);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.15);
+      } catch(e) {}
+    }
+
+    function playExplosionSound() {
+      try {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(120, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(20, audioCtx.currentTime + 0.4);
+        gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.4);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.4);
+      } catch(e) {}
+    }
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Obstacles
+    const obstacles = [
+      { x: 140, y: 100, w: 40, h: 140 },
+      { x: 620, y: 100, w: 40, h: 140 },
+      { x: 140, y: 310, w: 40, h: 140 },
+      { x: 620, y: 310, w: 40, h: 140 },
+      { x: 340, y: 160, w: 120, h: 40 },
+      { x: 340, y: 350, w: 120, h: 40 },
+      { x: 380, y: 240, w: 40, h: 70 }
+    ];
+
+    // Tanks
+    const tanks = [
+      {
+        x: 80, y: 275, angle: 0, turretAngle: 0,
+        color: '#38bdf8', glow: 'rgba(56, 189, 248, 0.4)',
+        hp: 100, maxHp: 100, speed: 2.8, size: 24, wins: 0,
+        shootCooldown: 0
+      },
+      {
+        x: 720, y: 275, angle: Math.PI, turretAngle: Math.PI,
+        color: '#f43f5e', glow: 'rgba(244, 63, 94, 0.4)',
+        hp: 100, maxHp: 100, speed: 2.8, size: 24, wins: 0,
+        shootCooldown: 0
+      }
+    ];
+
+    let bullets = [];
+    let particles = [];
+    let keys = {};
+    let mouse = { x: 400, y: 275 };
+    let myPlayerIndex = 0;
+    let isMultiplayerActive = false;
+    let matchOver = false;
+
+    // Platform SDK integration
+    const SDK = window.Multiplayer;
+
+    SDK.on('connect', (info) => {
+      myPlayerIndex = info.player.index || 0;
+      updatePlayerNames();
+      loadSystemStats();
+    });
+
+    SDK.on('players', (playersList) => {
+      isMultiplayerActive = playersList.length > 1;
+      updatePlayerNames();
+    });
+
+    function updatePlayerNames() {
+      const players = SDK.getPlayers();
+      if (players[0]) document.getElementById('p1-name').innerText = (myPlayerIndex === 0 ? '★ YOU: ' : '') + players[0].name;
+      if (players[1]) document.getElementById('p2-name').innerText = (myPlayerIndex === 1 ? '★ YOU: ' : '') + players[1].name;
+      else document.getElementById('p2-name').innerText = 'P2: Waiting / AI';
+    }
+
+    async function loadSystemStats() {
+      try {
+        const saved = await SDK.loadData('tank_stats');
+        if (saved) {
+          tanks[0].wins = saved.p1Wins || 0;
+          tanks[1].wins = saved.p2Wins || 0;
+          updateScoresUI();
+        }
+      } catch (e) {}
+    }
+
+    async function saveSystemStats() {
+      try {
+        await SDK.saveData('tank_stats', {
+          p1Wins: tanks[0].wins,
+          p2Wins: tanks[1].wins,
+          lastUpdated: new Date().toISOString()
+        });
+        SDK.submitScore(Math.max(tanks[0].wins, tanks[1].wins), {
+          p1: tanks[0].wins,
+          p2: tanks[1].wins
+        });
+      } catch (e) {}
+    }
+
+    // Input handlers
+    window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
+    window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+    canvas.addEventListener('mousemove', e => {
+      const rect = canvas.getBoundingClientRect();
+      mouse.x = (e.clientX - rect.left) * (canvas.width / rect.width);
+      mouse.y = (e.clientY - rect.top) * (canvas.height / rect.height);
+    });
+    canvas.addEventListener('mousedown', () => { fireBullet(myPlayerIndex); });
+    window.addEventListener('keydown', e => {
+      if (e.code === 'Space') fireBullet(myPlayerIndex);
+    });
+
+    // Network Sync Events
+    SDK.on('tank_sync', (data, sender) => {
+      const remoteIdx = myPlayerIndex === 0 ? 1 : 0;
+      if (data.index === remoteIdx) {
+        tanks[remoteIdx].x = data.x;
+        tanks[remoteIdx].y = data.y;
+        tanks[remoteIdx].angle = data.angle;
+        tanks[remoteIdx].turretAngle = data.turretAngle;
+      }
+    });
+
+    SDK.on('tank_fire', (bulletData) => {
+      bullets.push(bulletData);
+      playLaserSound();
+    });
+
+    SDK.on('tank_hit', (data) => {
+      tanks[data.targetIdx].hp = data.newHp;
+      createExplosion(data.x, data.y, tanks[data.targetIdx].color);
+      playExplosionSound();
+      updateHealthUI();
+    });
+
+    SDK.on('match_reset', () => {
+      resetMatch();
+    });
+
+    function fireBullet(playerIdx) {
+      if (matchOver) return;
+      const t = tanks[playerIdx];
+      if (t.shootCooldown > 0) return;
+      t.shootCooldown = 18;
+
+      const barrelLength = 26;
+      const bx = t.x + Math.cos(t.turretAngle) * barrelLength;
+      const by = t.y + Math.sin(t.turretAngle) * barrelLength;
+      const bullet = {
+        x: bx,
+        y: by,
+        vx: Math.cos(t.turretAngle) * 6.5,
+        vy: Math.sin(t.turretAngle) * 6.5,
+        owner: playerIdx,
+        bounces: 1,
+        life: 140,
+        color: t.color
+      };
+
+      bullets.push(bullet);
+      playLaserSound();
+
+      // Broadcast to other player
+      SDK.send('tank_fire', bullet);
+    }
+
+    function createExplosion(x, y, color) {
+      for (let i = 0; i < 20; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const spd = Math.random() * 4 + 1;
+        particles.push({
+          x, y,
+          vx: Math.cos(ang) * spd,
+          vy: Math.sin(ang) * spd,
+          life: 30 + Math.random() * 20,
+          maxLife: 50,
+          color
+        });
+      }
+    }
+
+    function checkCollision(x, y, size) {
+      if (x - size < 0 || x + size > canvas.width || y - size < 0 || y + size > canvas.height) return true;
+      for (const obs of obstacles) {
+        if (x + size > obs.x && x - size < obs.x + obs.w &&
+            y + size > obs.y && y - size < obs.y + obs.h) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // Sync loop: send local position at 30Hz
+    setInterval(() => {
+      if (matchOver) return;
+      const me = tanks[myPlayerIndex];
+      SDK.send('tank_sync', {
+        index: myPlayerIndex,
+        x: me.x,
+        y: me.y,
+        angle: me.angle,
+        turretAngle: me.turretAngle
+      });
+    }, 33);
+
+    // Main Game Loop
+    function update() {
+      // Local tank movement
+      const me = tanks[myPlayerIndex];
+      if (!matchOver && me) {
+        let dx = 0;
+        let dy = 0;
+        if (keys['w'] || keys['arrowup']) dy -= 1;
+        if (keys['s'] || keys['arrowdown']) dy += 1;
+        if (keys['a'] || keys['arrowleft']) dx -= 1;
+        if (keys['d'] || keys['arrowright']) dx += 1;
+
+        if (dx !== 0 || dy !== 0) {
+          const moveAngle = Math.atan2(dy, dx);
+          const nextX = me.x + Math.cos(moveAngle) * me.speed;
+          const nextY = me.y + Math.sin(moveAngle) * me.speed;
+
+          if (!checkCollision(nextX, me.y, me.size)) me.x = nextX;
+          if (!checkCollision(me.x, nextY, me.size)) me.y = nextY;
+          me.angle = moveAngle;
+        }
+
+        // Turret aims at mouse
+        me.turretAngle = Math.atan2(mouse.y - me.y, mouse.x - me.x);
+        if (me.shootCooldown > 0) me.shootCooldown--;
+      }
+
+      // Simple AI bot for P2 if solo testing
+      if (!isMultiplayerActive && myPlayerIndex === 0 && !matchOver) {
+        const bot = tanks[1];
+        if (bot.shootCooldown > 0) bot.shootCooldown--;
+        const toP1 = Math.atan2(tanks[0].y - bot.y, tanks[0].x - bot.x);
+        bot.turretAngle = toP1;
+
+        // Bot gently moves
+        const dist = Math.hypot(tanks[0].x - bot.x, tanks[0].y - bot.y);
+        if (dist > 250) {
+          const nx = bot.x + Math.cos(toP1) * 1.5;
+          const ny = bot.y + Math.sin(toP1) * 1.5;
+          if (!checkCollision(nx, bot.y, bot.size)) bot.x = nx;
+          if (!checkCollision(bot.x, ny, bot.size)) bot.y = ny;
+        }
+        if (Math.random() < 0.02 && bot.shootCooldown === 0) {
+          fireBullet(1);
+        }
+      }
+
+      // Update Bullets
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i];
+        b.x += b.vx;
+        b.y += b.vy;
+        b.life--;
+
+        // Bounce walls
+        if (b.x < 0 || b.x > canvas.width) {
+          b.vx = -b.vx;
+          b.bounces--;
+        }
+        if (b.y < 0 || b.y > canvas.height) {
+          b.vy = -b.vy;
+          b.bounces--;
+        }
+
+        // Bounce obstacles
+        for (const obs of obstacles) {
+          if (b.x > obs.x && b.x < obs.x + obs.w && b.y > obs.y && b.y < obs.y + obs.h) {
+            b.vx = -b.vx;
+            b.vy = -b.vy;
+            b.bounces--;
+            break;
+          }
+        }
+
+        // Tank hit checks (Host authoritative or shooter claims)
+        if (SDK.isHost()) {
+          for (let p = 0; p < 2; p++) {
+            if (b.owner !== p && tanks[p].hp > 0) {
+              const hitDist = Math.hypot(b.x - tanks[p].x, b.y - tanks[p].y);
+              if (hitDist < tanks[p].size + 4) {
+                tanks[p].hp = Math.max(0, tanks[p].hp - 20);
+                b.life = 0;
+
+                createExplosion(b.x, b.y, tanks[p].color);
+                playExplosionSound();
+                updateHealthUI();
+
+                SDK.send('tank_hit', {
+                  targetIdx: p,
+                  newHp: tanks[p].hp,
+                  x: b.x,
+                  y: b.y
+                });
+
+                if (tanks[p].hp <= 0 && !matchOver) {
+                  const winnerIdx = p === 0 ? 1 : 0;
+                  endMatch(winnerIdx);
+                }
+              }
+            }
+          }
+        }
+
+        if (b.life <= 0 || b.bounces < 0) {
+          bullets.splice(i, 1);
+        }
+      }
+
+      // Update particles
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life--;
+        if (p.life <= 0) particles.splice(i, 1);
+      }
+    }
+
+    function updateHealthUI() {
+      document.getElementById('p1-hp').style.width = tanks[0].hp + '%';
+      document.getElementById('p2-hp').style.width = tanks[1].hp + '%';
+    }
+
+    function updateScoresUI() {
+      document.getElementById('p1-wins').innerText = tanks[0].wins;
+      document.getElementById('p2-wins').innerText = tanks[1].wins;
+      document.getElementById('s1').innerText = tanks[0].wins;
+      document.getElementById('s2').innerText = tanks[1].wins;
+    }
+
+    function endMatch(winnerIdx) {
+      matchOver = true;
+      tanks[winnerIdx].wins++;
+      updateScoresUI();
+      saveSystemStats();
+
+      const players = SDK.getPlayers();
+      const winnerName = players[winnerIdx] ? players[winnerIdx].name : (winnerIdx === 0 ? 'Blue Tank' : 'Red Tank');
+      
+      document.getElementById('banner-title').innerText = `${winnerName.toUpperCase()} WINS!`;
+      document.getElementById('banner-sub').innerText = `Victory registered in your system storage.`;
+      document.getElementById('overlay-banner').classList.add('visible');
+
+      SDK.gameOver(winnerIdx, {
+        p1Wins: tanks[0].wins,
+        p2Wins: tanks[1].wins
+      });
+    }
+
+    function resetMatch() {
+      matchOver = false;
+      document.getElementById('overlay-banner').classList.remove('visible');
+      tanks[0].x = 80;
+      tanks[0].y = 275;
+      tanks[0].hp = 100;
+      tanks[0].angle = 0;
+      tanks[0].turretAngle = 0;
+
+      tanks[1].x = 720;
+      tanks[1].y = 275;
+      tanks[1].hp = 100;
+      tanks[1].angle = Math.PI;
+      tanks[1].turretAngle = Math.PI;
+
+      bullets = [];
+      particles = [];
+      updateHealthUI();
+    }
+
+    document.getElementById('btn-rematch').addEventListener('click', () => {
+      resetMatch();
+      SDK.send('match_reset', {});
+    });
+
+    // Rendering
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Grid background
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+      ctx.lineWidth = 1;
+      for (let x = 0; x < canvas.width; x += 40) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+      }
+      for (let y = 0; y < canvas.height; y += 40) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+      }
+
+      // Obstacles
+      for (const obs of obstacles) {
+        ctx.fillStyle = '#1e293b';
+        ctx.strokeStyle = '#334155';
+        ctx.lineWidth = 2;
+        ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+        ctx.strokeRect(obs.x, obs.y, obs.w, obs.h);
+
+        // Highlight border
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.1)';
+        ctx.fillRect(obs.x + 4, obs.y + 4, obs.w - 8, obs.h - 8);
+      }
+
+      // Draw Tanks
+      tanks.forEach((tank, idx) => {
+        if (tank.hp <= 0) return;
+        ctx.save();
+        ctx.translate(tank.x, tank.y);
+
+        // Neon Glow
+        ctx.shadowColor = tank.color;
+        ctx.shadowBlur = 15;
+
+        // Tracks
+        ctx.save();
+        ctx.rotate(tank.angle);
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(-tank.size - 2, -tank.size + 4, tank.size * 2 + 4, 8);
+        ctx.fillRect(-tank.size - 2, tank.size - 12, tank.size * 2 + 4, 8);
+        // Body
+        ctx.fillStyle = tank.color;
+        ctx.fillRect(-tank.size + 4, -tank.size + 8, (tank.size - 4) * 2, (tank.size - 8) * 2);
+        ctx.restore();
+
+        // Turret (rotates independently)
+        ctx.save();
+        ctx.rotate(tank.turretAngle);
+        ctx.fillStyle = '#e2e8f0';
+        ctx.fillRect(0, -4, 24, 8); // Cannon barrel
+        ctx.beginPath();
+        ctx.arc(0, 0, 10, 0, Math.PI * 2);
+        ctx.fillStyle = tank.color;
+        ctx.fill();
+        ctx.restore();
+
+        ctx.restore();
+      });
+
+      // Bullets
+      bullets.forEach(b => {
+        ctx.save();
+        ctx.shadowColor = b.color;
+        ctx.shadowBlur = 12;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+
+      // Particles
+      particles.forEach(p => {
+        ctx.save();
+        ctx.globalAlpha = p.life / p.maxLife;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+
+      requestAnimationFrame(() => {
+        update();
+        draw();
+      });
+    }
+
+    updateHealthUI();
+    draw();
+  </script>
+</body>
+</html>
+
